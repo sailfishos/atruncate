@@ -1,4 +1,4 @@
-CFLAGS		= -g -O2 -Wall -I../linux/include
+CFLAGS		= -g -O2 -Wall -I../linux/include -D_FILE_OFFSET_BITS=64
 PREFIX          ?= /usr
 PROGRAM		= atruncate
 PACKAGE		= $(PROGRAM)-`git describe --tags`
