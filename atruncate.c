@@ -20,11 +20,15 @@
  *
  */
 
+/* Needed for O_LARGEFILE */
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -55,7 +59,7 @@ static void print_help()
 	printf("  --help, -h      Print this help\n");
 }
 
-void find_last_byte(off_t *result, FILE *file, off_t start, off_t end)
+void find_last_byte(off_t *result, int fd, off_t start, off_t end)
 {
 	char buf[SEARCH_CHUNK_SIZE];
 	char byte = 0;
@@ -63,28 +67,32 @@ void find_last_byte(off_t *result, FILE *file, off_t start, off_t end)
 	int j = 0;
 	off_t cur_offset;
 	size_t size = SEARCH_CHUNK_SIZE;
-	size_t count;
+	ssize_t count;
 
 	memset((void *)buf, 0, SEARCH_CHUNK_SIZE);
 
 	while (byte == 0 || byte == EOF) {
 		if ((end - i * SEARCH_CHUNK_SIZE) < 0) {
+			/* Cannot read full chunk, only read what is left */
 			cur_offset = start;
 			size = end % SEARCH_CHUNK_SIZE;
 		} else {
 			cur_offset = end - i * SEARCH_CHUNK_SIZE;
 		}
 
-		fseek(file, cur_offset, SEEK_SET);
+		count = pread(fd, buf, size, cur_offset);
 
-		count = fread(buf, sizeof(char), size, file);
-		if (count != size)
-			printf("warning: read %u bytes, expected to get %u\n",
+		if (count < 0) {
+			perror("Could not read file");
+		} else if (count != size) {
+			printf("warning: read %d bytes, expected to get %u\n",
 				(unsigned int) count, (unsigned int) size);
+			size = count;
+		}
 
 		/* Let's check for any non-zero data */
 		for (j = size - 1; j >= 0; j--) {
-			if (buf[j] != 0 && buf[j] != EOF) {
+			if (buf[j] != 0) {
 				cur_offset += j;
 				*result = cur_offset + 1;
 				return;
@@ -100,9 +108,14 @@ off_t find_last_block(const char *f)
 	struct stat props;
 	int ret = 0;
 	off_t current_offset = 0;
-	FILE *file;
+	int fd;
 
-	file = fopen(f, "r");
+	fd = open(f, O_RDONLY | O_LARGEFILE);
+	if (fd < 0) {
+		perror("Could not open source file");
+		current_offset = fd;
+		goto find_exit;
+	}
 
 	ret = stat(f, &props);
 	if (ret) {
@@ -111,7 +124,7 @@ off_t find_last_block(const char *f)
 		goto find_exit;
 	}
 
-	find_last_byte(&current_offset, file, 0, props.st_size);
+	find_last_byte(&current_offset, fd, 0, props.st_size);
 
 	/* Align to next block size */
 	if (current_offset % BLOCK_SIZE) {
@@ -119,7 +132,7 @@ off_t find_last_block(const char *f)
 		current_offset = current_offset - (current_offset % BLOCK_SIZE);
 	}
 
-	fclose(file);
+	close(fd);
 find_exit:
 	return current_offset;
 }
