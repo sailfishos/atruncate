@@ -198,7 +198,7 @@ int main (int argc, char *argv[])
 	else
 		dest_file = source_file;
 
-	if (do_truncate(source_file, dest_file));
+	if (do_truncate(source_file, dest_file))
 		goto fail;
 
 	return EXIT_SUCCESS;
